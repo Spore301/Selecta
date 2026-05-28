@@ -137,11 +137,12 @@ class SelectaOverlay {
     this.init();
     this.hidePausedBadge();
 
-    // Reset overlay styles to default top-center position before rendering
+    // Reset overlay styles to default top-right position before rendering
     if (this.overlayElement) {
-      this.overlayElement.style.left = '50%';
+      this.overlayElement.style.left = 'auto';
+      this.overlayElement.style.right = '16px';
       this.overlayElement.style.top = '16px';
-      this.overlayElement.style.transform = 'translate(-50%, 0)';
+      this.overlayElement.style.transform = '';
       this.overlayElement.style.width = '90%';
       this.overlayElement.style.maxWidth = '480px';
       this.overlayElement.style.height = 'auto';
@@ -389,6 +390,8 @@ class SelectaOverlay {
     this.resizeInitialWidth = 0;
     this.resizeInitialHeight = 0;
 
+    this.lastInteractTime = 0;
+
     const header = this.shadow.querySelector('.overlay-header');
     header.style.cursor = 'move';
 
@@ -398,6 +401,7 @@ class SelectaOverlay {
       if (e.target.closest('.action-btn')) return;
 
       this.isDragging = true;
+      this.lastInteractTime = Date.now();
       this.dragStartX = e.clientX;
       this.dragStartY = e.clientY;
 
@@ -405,7 +409,8 @@ class SelectaOverlay {
       this.dragInitialLeft = rect.left;
       this.dragInitialTop = rect.top;
 
-      // Set explicit values to coordinate dragging
+      // Lock standard dimensions in pixels immediately to prevent layout jumps on drag
+      this.overlayElement.style.width = rect.width + 'px';
       this.overlayElement.style.left = this.dragInitialLeft + 'px';
       this.overlayElement.style.top = this.dragInitialTop + 'px';
       this.overlayElement.style.transform = 'none';
@@ -417,6 +422,7 @@ class SelectaOverlay {
 
       const onMouseMove = (moveEvent) => {
         if (!this.isDragging) return;
+        this.lastInteractTime = Date.now();
         const dx = moveEvent.clientX - this.dragStartX;
         const dy = moveEvent.clientY - this.dragStartY;
         this.overlayElement.style.left = (this.dragInitialLeft + dx) + 'px';
@@ -425,6 +431,7 @@ class SelectaOverlay {
 
       const onMouseUp = () => {
         this.isDragging = false;
+        this.lastInteractTime = Date.now();
         document.removeEventListener('mousemove', onMouseMove);
         document.removeEventListener('mouseup', onMouseUp);
       };
@@ -437,6 +444,7 @@ class SelectaOverlay {
     const resizeHandle = this.shadow.getElementById('selecta-resize-handle');
     resizeHandle.addEventListener('mousedown', (e) => {
       this.isResizing = true;
+      this.lastInteractTime = Date.now();
       this.resizeStartX = e.clientX;
       this.resizeStartY = e.clientY;
 
@@ -449,6 +457,7 @@ class SelectaOverlay {
 
       const onMouseMove = (moveEvent) => {
         if (!this.isResizing) return;
+        this.lastInteractTime = Date.now();
         const dw = moveEvent.clientX - this.resizeStartX;
         const dh = moveEvent.clientY - this.resizeStartY;
 
@@ -465,6 +474,7 @@ class SelectaOverlay {
 
       const onMouseUp = () => {
         this.isResizing = false;
+        this.lastInteractTime = Date.now();
         document.removeEventListener('mousemove', onMouseMove);
         document.removeEventListener('mouseup', onMouseUp);
       };

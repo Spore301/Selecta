@@ -19,6 +19,24 @@ function handleTextSelection() {
       // Enforce minimum selection length of 2 characters
       if (selectedText.length < 2) return;
 
+      // Ignore selections if the user is currently dragging or resizing the overlay, or just finished (within 500ms)
+      if (window.selectaOverlay && (
+        window.selectaOverlay.isDragging || 
+        window.selectaOverlay.isResizing || 
+        (Date.now() - window.selectaOverlay.lastInteractTime < 500)
+      )) {
+        return;
+      }
+
+      // Ignore selections originating inside the Shadow DOM of the overlay card
+      if (selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0);
+        const startRoot = range.startContainer.getRootNode();
+        if (startRoot && startRoot instanceof ShadowRoot && startRoot.host && startRoot.host.id === 'selecta-overlay-host') {
+          return;
+        }
+      }
+
       // Check storage for enabled state, active mode, word limit, and blocklist
       const settings = await chrome.storage.local.get({
         enabled: true,

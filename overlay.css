@@ -53,8 +53,9 @@
 .selecta-overlay {
   position: fixed;
   top: 16px;
-  left: 50%;
-  transform: translate(-50%, -10px);
+  right: 16px;
+  left: auto;
+  transform: translateY(-10px);
   z-index: 2147483647;
   width: 90%;
   max-width: 480px;
@@ -75,13 +76,13 @@
 .selecta-overlay.visible {
   opacity: 1;
   pointer-events: auto;
-  transform: translate(-50%, 0);
+  transform: translateY(0);
 }
 
 .selecta-overlay.hidden {
   opacity: 0;
   pointer-events: none;
-  transform: translate(-50%, -10px);
+  transform: translateY(-10px);
 }
 
 .overlay-container {
