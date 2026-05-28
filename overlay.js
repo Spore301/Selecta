@@ -226,6 +226,18 @@ if (!window.selectaOverlay) {
         url: window.location.href
       });
 
+      this.currentPort.onDisconnect.addListener(() => {
+        console.warn("[Selecta] Port disconnected.");
+        this.currentPort = null;
+        const activeInput = this.shadow.getElementById('selecta-chat-input');
+        if (activeInput) {
+          activeInput.disabled = true;
+          activeInput.placeholder = "Connection lost. Please select text again.";
+        }
+        const activeSend = this.shadow.getElementById('selecta-chat-send');
+        if (activeSend) activeSend.disabled = true;
+      });
+
       this.currentPort.onMessage.addListener((msg) => {
         if (msg.type === 'chunk') {
           if (this.activeStreamingContainer) {
@@ -238,7 +250,7 @@ if (!window.selectaOverlay) {
             this.activeStreamingContainer.textContent = this.activeStreamingText;
             // Scroll container to bottom
             const body = this.shadow.getElementById('selecta-body');
-            body.scrollTop = body.scrollHeight;
+            if (body) body.scrollTop = body.scrollHeight;
           }
         } else if (msg.type === 'error') {
           if (this.activeStreamingContainer) {
@@ -247,17 +259,25 @@ if (!window.selectaOverlay) {
               ${msg.message}
             </span>`;
           }
-          chatInput.disabled = true;
-          this.shadow.getElementById('selecta-chat-send').disabled = true;
+          const activeInput = this.shadow.getElementById('selecta-chat-input');
+          const activeSend = this.shadow.getElementById('selecta-chat-send');
+          if (activeInput) activeInput.disabled = true;
+          if (activeSend) activeSend.disabled = true;
         } else if (msg.type === 'done') {
           if (this.activeStreamingContainer) {
             // Render complete markdown output
             this.activeStreamingContainer.innerHTML = this.parseMarkdown(this.activeStreamingText || msg.fullText);
           }
           // Enable chat inputs
-          chatInput.disabled = false;
-          chatInput.placeholder = "Ask follow-up question...";
-          this.shadow.getElementById('selecta-chat-send').disabled = false;
+          const activeInput = this.shadow.getElementById('selecta-chat-input');
+          const activeSend = this.shadow.getElementById('selecta-chat-send');
+          if (activeInput) {
+            activeInput.disabled = false;
+            activeInput.placeholder = "Ask follow-up question...";
+          }
+          if (activeSend) {
+            activeSend.disabled = false;
+          }
         }
       });
     } catch (connectErr) {
@@ -299,7 +319,7 @@ if (!window.selectaOverlay) {
     body.scrollTop = body.scrollHeight;
 
     this.activeStreamingText = '';
-    this.activeStreamingContainer = this.shadow.getElementById(`answer-${turnId}`);
+    this.activeStreamingContainer = turnDiv.querySelector('.chat-answer');
 
     // Send query to background
     this.currentPort.postMessage({
