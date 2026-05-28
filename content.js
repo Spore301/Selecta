@@ -2,100 +2,85 @@
 
 let selectDebounceTimer = null;
 
-// Initialize on load
-function initSelectionListener() {
-  document.addEventListener('mouseup', handleMouseUp);
-  
-  // Watch for storage changes to react to toggles or settings updates in real time
-  chrome.storage.onChanged.addListener((changes) => {
-    if (changes.enabled) {
-      const isEnabled = changes.enabled.newValue;
-      if (isEnabled) {
-        if (window.selectaOverlay) {
-          window.selectaOverlay.removePausedBadge();
-        }
-      } else {
-        if (window.selectaOverlay) {
-          window.selectaOverlay.showPausedBadge();
-        }
-      }
-    }
-  });
+// Listen to mouseup to capture selections
+document.addEventListener('mouseup', handleTextSelection);
 
-  // Verify enable/disable state on load
-  chrome.storage.local.get({ enabled: true }, (res) => {
-    if (!res.enabled && window.selectaOverlay) {
-      window.selectaOverlay.showPausedBadge();
-    }
-  });
-}
-
-// Check selection and fire overlay
-async function handleMouseUp(e) {
+function handleTextSelection() {
   if (selectDebounceTimer) {
     clearTimeout(selectDebounceTimer);
   }
 
+  // Set debounce delay (400ms)
   selectDebounceTimer = setTimeout(async () => {
-    const selection = window.getSelection();
-    const term = selection.toString().trim();
+    try {
+      const selection = window.getSelection();
+      const selectedText = selection.toString().trim();
 
-    // Verification guards
-    if (term.length < 2) return;
+      // Enforce minimum selection length of 2 characters
+      if (selectedText.length < 2) return;
 
-    // Check if clicked inside our overlay shadow DOM
-    const host = document.getElementById('selecta-overlay-host');
-    if (host && (host.contains(e.target) || e.composedPath().includes(host))) {
-      return;
-    }
+      // Check storage for enabled state, active mode, word limit, and blocklist
+      const settings = await chrome.storage.local.get({
+        enabled: true,
+        mode: 'auto',
+        wordLimit: 30,
+        blocklist: ''
+      });
 
-    // Retrieve settings
-    const settings = await chrome.storage.local.get({
-      enabled: true,
-      mode: 'auto',
-      wordLimit: 30,
-      blocklist: ''
-    });
+      // If extension is disabled, do not fire
+      if (!settings.enabled) return;
 
-    if (!settings.enabled) return;
-
-    // Check site blocklist
-    const currentHost = window.location.hostname;
-    const blocklistItems = settings.blocklist.split('\n').map(d => d.trim()).filter(Boolean);
-    const isBlocklisted = blocklistItems.some(domain => currentHost.includes(domain));
-    if (isBlocklisted) return;
-
-    // Calculate word count
-    const words = term.split(/\s+/).filter(w => w.length > 0);
-    const wordCount = words.length;
-
-    let targetMode = 'dictionary'; // Default mode
-    if (settings.mode === 'auto') {
-      if (wordCount > settings.wordLimit) {
-        targetMode = 'summary';
+      // Check blocklist
+      const currentHost = window.location.hostname;
+      if (settings.blocklist) {
+        const domains = settings.blocklist
+          .split('\n')
+          .map(d => d.trim().toLowerCase())
+          .filter(d => d.length > 0);
+        
+        const isBlocked = domains.some(domain => currentHost.toLowerCase().includes(domain));
+        if (isBlocked) return;
       }
-    } else if (settings.mode === 'summarize') {
-      targetMode = 'summary';
-    }
 
-    // Perform operations based on target mode
-    if (targetMode === 'dictionary') {
-      const context = getSelectedContext(selection);
-      if (window.selectaOverlay) {
-        window.selectaOverlay.show(term, 'dictionary', context);
+      // Count words in selection
+      const words = selectedText.split(/\s+/).filter(w => w.length > 0);
+      const wordCount = words.length;
+
+      // Decide mode: dictionary vs summarize
+      let targetMode = 'dictionary';
+      if (settings.mode === 'summarize') {
+        targetMode = 'summarize';
+      } else if (settings.mode === 'auto') {
+        if (wordCount > settings.wordLimit) {
+          targetMode = 'summarize';
+        }
       }
-    } else {
-      // Summarizer mode
-      if (window.selectaOverlay) {
-        window.selectaOverlay.show(term, 'summary', null);
+
+      if (targetMode === 'dictionary') {
+        // Extract context (±10 words around selection)
+        const context = getSelectedContext(selection);
+        
+        // Truncate term title for layout comfort if selected text is long
+        const term = selectedText.length > 80 ? selectedText.slice(0, 80) + '...' : selectedText;
+
+        if (window.selectaOverlay) {
+          window.selectaOverlay.show(term, context, 'dictionary', null);
+        }
+      } else {
+        // Summarize mode
+        if (window.selectaOverlay) {
+          window.selectaOverlay.show(null, null, 'summarize', selectedText);
+        }
       }
+    } catch (err) {
+      console.error("Selecta content script error:", err);
     }
   }, 400);
 }
 
-// Extract ±10 words contextual window around the selection
+// Custom text walking algorithm to extract ±10 words around selection
 function getSelectedContext(selection) {
-  if (!selection || selection.rangeCount === 0) return '';
+  if (!selection || selection.rangeCount === 0) return '[TERM]';
   
   try {
     const range = selection.getRangeAt(0);
@@ -104,12 +89,13 @@ function getSelectedContext(selection) {
     const endContainer = range.endContainer;
     const endOffset = range.endOffset;
 
+    // Get the nearest common ancestor element
     let ancestor = range.commonAncestorContainer;
     if (ancestor.nodeType === Node.TEXT_NODE) {
       ancestor = ancestor.parentNode;
     }
 
-    // Walk text nodes within the common ancestor
+    // Set up a TreeWalker for text nodes under the common ancestor
     const walker = document.createTreeWalker(
       ancestor,
       NodeFilter.SHOW_TEXT,
@@ -124,11 +110,10 @@ function getSelectedContext(selection) {
       currentNode = walker.nextNode();
     }
 
-    // Resolve index of start/end text containers
     let startIndex = textNodes.indexOf(startContainer);
     let endIndex = textNodes.indexOf(endContainer);
 
-    // Fallbacks if node is element node
+    // Fallback if node references are not direct index matches
     if (startIndex === -1) {
       startIndex = 0;
       for (let i = 0; i < textNodes.length; i++) {
@@ -148,50 +133,73 @@ function getSelectedContext(selection) {
       }
     }
 
-    // Words before selection
+    // 1. Gather text before selection
     let wordsBefore = [];
     if (startIndex >= 0 && startIndex < textNodes.length) {
       const node = textNodes[startIndex];
+      // Text before startOffset in the startContainer
       const textBefore = node.textContent.substring(0, node === startContainer ? startOffset : 0);
-      wordsBefore = textBefore.trim().split(/\s+/).filter(Boolean);
+      wordsBefore = textBefore.trim().split(/\s+/).filter(w => w.length > 0);
     }
 
+    // Walk backwards through preceding text nodes
     let i = startIndex - 1;
     while (wordsBefore.length < 10 && i >= 0) {
       const node = textNodes[i];
-      const nodeWords = node.textContent.trim().split(/\s+/).filter(Boolean);
+      const nodeText = node.textContent;
+      const nodeWords = nodeText.trim().split(/\s+/).filter(w => w.length > 0);
       wordsBefore = [...nodeWords, ...wordsBefore];
       i--;
     }
+    
+    // Slice only the last 10 words
     if (wordsBefore.length > 10) {
       wordsBefore = wordsBefore.slice(-10);
     }
 
-    // Words after selection
+    // 2. Gather text after selection
     let wordsAfter = [];
     if (endIndex >= 0 && endIndex < textNodes.length) {
       const node = textNodes[endIndex];
+      // Text after endOffset in the endContainer
       const textAfter = node.textContent.substring(node === endContainer ? endOffset : node.textContent.length);
-      wordsAfter = textAfter.trim().split(/\s+/).filter(Boolean);
+      wordsAfter = textAfter.trim().split(/\s+/).filter(w => w.length > 0);
     }
 
+    // Walk forwards through subsequent text nodes
     let j = endIndex + 1;
     while (wordsAfter.length < 10 && j < textNodes.length) {
       const node = textNodes[j];
-      const nodeWords = node.textContent.trim().split(/\s+/).filter(Boolean);
+      const nodeText = node.textContent;
+      const nodeWords = nodeText.trim().split(/\s+/).filter(w => w.length > 0);
       wordsAfter = [...wordsAfter, ...nodeWords];
       j++;
     }
+
+    // Slice only the first 10 words
     if (wordsAfter.length > 10) {
       wordsAfter = wordsAfter.slice(0, 10);
     }
 
-    return `${wordsBefore.join(' ')} [TERM] ${wordsAfter.join(' ')}`;
-  } catch (err) {
-    console.error('Failed to extract selection context:', err);
-    return `[TERM]`;
+    // Construct the context layout
+    const termPlaceholder = `[TERM]`;
+    return `${wordsBefore.join(' ')} ${termPlaceholder} ${wordsAfter.join(' ')}`;
+  } catch (e) {
+    console.error("Context extraction failed, returning default:", e);
+    return '[TERM]';
   }
 }
 
-// Run listener setup
-initSelectionListener();
+// Listen to storage changes to coordinate the Grammarly-style paused badge
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && window.selectaOverlay) {
+    if (changes.enabled) {
+      const enabled = changes.enabled.newValue;
+      if (enabled) {
+        window.selectaOverlay.hidePausedBadge();
+      } else {
+        window.selectaOverlay.showPausedBadge();
+      }
+    }
+  }
+});
