@@ -91,6 +91,10 @@ class SelectaOverlay {
     `;
     this.wrapper.appendChild(this.pausedBadge);
 
+    if (!document.body) {
+      console.warn("[Selecta] document.body is not available to append overlay host.");
+      return;
+    }
     document.body.appendChild(this.host);
 
     // Setup action event listeners
@@ -204,55 +208,60 @@ class SelectaOverlay {
       this.currentPort.disconnect();
     }
 
-    // Connect to background script
-    this.currentPort = chrome.runtime.connect({ name: 'selecta-stream' });
-    this.activeStreamingText = '';
-    this.activeStreamingContainer = mainContent;
+    // Connect to background script with error boundaries
+    try {
+      this.currentPort = chrome.runtime.connect({ name: 'selecta-stream' });
+      this.activeStreamingText = '';
+      this.activeStreamingContainer = mainContent;
 
-    // Send search message
-    this.currentPort.postMessage({
-      type: 'start',
-      term,
-      context,
-      mode,
-      selectedText,
-      url: window.location.href
-    });
+      // Send search message
+      this.currentPort.postMessage({
+        type: 'start',
+        term,
+        context,
+        mode,
+        selectedText,
+        url: window.location.href
+      });
 
-    this.currentPort.onMessage.addListener((msg) => {
-      if (msg.type === 'chunk') {
-        if (this.activeStreamingContainer) {
-          // If first chunk, clear loading state
-          if (this.activeStreamingText === '') {
-            this.activeStreamingContainer.innerHTML = '';
+      this.currentPort.onMessage.addListener((msg) => {
+        if (msg.type === 'chunk') {
+          if (this.activeStreamingContainer) {
+            // If first chunk, clear loading state
+            if (this.activeStreamingText === '') {
+              this.activeStreamingContainer.innerHTML = '';
+            }
+            this.activeStreamingText += msg.text;
+            // Render chunk raw (simple streaming effect)
+            this.activeStreamingContainer.textContent = this.activeStreamingText;
+            // Scroll container to bottom
+            const body = this.shadow.getElementById('selecta-body');
+            body.scrollTop = body.scrollHeight;
           }
-          this.activeStreamingText += msg.text;
-          // Render chunk raw (simple streaming effect)
-          this.activeStreamingContainer.textContent = this.activeStreamingText;
-          // Scroll container to bottom
-          const body = this.shadow.getElementById('selecta-body');
-          body.scrollTop = body.scrollHeight;
+        } else if (msg.type === 'error') {
+          if (this.activeStreamingContainer) {
+            this.activeStreamingContainer.innerHTML = `<span class="error-text">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+              ${msg.message}
+            </span>`;
+          }
+          chatInput.disabled = true;
+          this.shadow.getElementById('selecta-chat-send').disabled = true;
+        } else if (msg.type === 'done') {
+          if (this.activeStreamingContainer) {
+            // Render complete markdown output
+            this.activeStreamingContainer.innerHTML = this.parseMarkdown(this.activeStreamingText || msg.fullText);
+          }
+          // Enable chat inputs
+          chatInput.disabled = false;
+          chatInput.placeholder = "Ask follow-up question...";
+          this.shadow.getElementById('selecta-chat-send').disabled = false;
         }
-      } else if (msg.type === 'error') {
-        if (this.activeStreamingContainer) {
-          this.activeStreamingContainer.innerHTML = `<span class="error-text">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-            ${msg.message}
-          </span>`;
-        }
-        chatInput.disabled = true;
-        this.shadow.getElementById('selecta-chat-send').disabled = true;
-      } else if (msg.type === 'done') {
-        if (this.activeStreamingContainer) {
-          // Render complete markdown output
-          this.activeStreamingContainer.innerHTML = this.parseMarkdown(this.activeStreamingText || msg.fullText);
-        }
-        // Enable chat inputs
-        chatInput.disabled = false;
-        chatInput.placeholder = "Ask follow-up question...";
-        this.shadow.getElementById('selecta-chat-send').disabled = false;
-      }
-    });
+      });
+    } catch (connectErr) {
+      console.error("[Selecta] Background connection failed:", connectErr);
+      this.showError("Could not connect to background worker. If you recently reloaded the extension, please refresh this webpage and try again.");
+    }
   }
 
   submitFollowUp() {
