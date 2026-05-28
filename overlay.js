@@ -264,18 +264,10 @@ if (!window.selectaOverlay) {
 
       this.currentPort.onMessage.addListener((msg) => {
         if (msg.type === 'chunk') {
-          if (this.activeStreamingContainer) {
-            // If first chunk, clear loading state
-            if (this.activeStreamingText === '') {
-              this.activeStreamingContainer.innerHTML = '';
-            }
-            this.activeStreamingText += msg.text;
-            // Render chunk raw (simple streaming effect)
-            this.activeStreamingContainer.textContent = this.activeStreamingText;
-            // Scroll container to bottom
-            const body = this.shadow.getElementById('selecta-body');
-            if (body) body.scrollTop = body.scrollHeight;
-          }
+          this.activeStreamingText += msg.text;
+          // Keep loading dots visible until fully done, scroll container as chunks arrive
+          const body = this.shadow.getElementById('selecta-body');
+          if (body) body.scrollTop = body.scrollHeight;
         } else if (msg.type === 'error') {
           if (this.activeStreamingContainer) {
             this.activeStreamingContainer.innerHTML = `<span class="error-text">
@@ -289,7 +281,7 @@ if (!window.selectaOverlay) {
           if (activeSend) activeSend.disabled = true;
         } else if (msg.type === 'done') {
           if (this.activeStreamingContainer) {
-            // Render complete markdown output
+            // Render complete markdown output at once
             this.activeStreamingContainer.innerHTML = this.parseMarkdown(this.activeStreamingText || msg.fullText);
           }
           // Enable chat inputs
