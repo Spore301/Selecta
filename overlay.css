@@ -19,14 +19,14 @@
   --font-sans: 'Outfit', system-ui, sans-serif;
   --bg-card: rgba(253, 251, 247, 0.92);
   --bg-modal: rgba(253, 251, 247, 1);
-  --bg-button: rgba(0, 0, 0, 0.05);
+  --bg-button: rgba(0, 0, 0, 0.06);
   --text-primary: #3d3b38;
   --text-secondary: #6e6b66;
-  --border-glass: rgba(0, 0, 0, 0.12);
-  --hover-bg: rgba(0, 0, 0, 0.08);
-  --active-bg: rgba(0, 0, 0, 0.12);
-  --shadow-card: 0 12px 32px rgba(0, 0, 0, 0.12);
-  --shadow-glow: 0 0 10px rgba(0, 0, 0, 0.05);
+  --border-glass: rgba(0, 0, 0, 0.15);
+  --hover-bg: rgba(0, 0, 0, 0.1);
+  --active-bg: rgba(0, 0, 0, 0.15);
+  --shadow-card: 0 8px 24px rgba(0, 0, 0, 0.15);
+  --shadow-glow: 0 0 10px rgba(0, 0, 0, 0.1);
   --accent: #3b82f6;
   --radius-pill: 12px;
   --radius-card: 16px;
@@ -37,14 +37,14 @@
   /* Dark Theme */
   --bg-card: rgba(30, 35, 45, 0.90);
   --bg-modal: rgba(30, 35, 45, 0.98);
-  --bg-button: rgba(255, 255, 255, 0.07);
+  --bg-button: rgba(255, 255, 255, 0.08);
   --text-primary: #f3f4f6;
   --text-secondary: #9ca3af;
-  --border-glass: rgba(255, 255, 255, 0.05);
-  --hover-bg: rgba(255, 255, 255, 0.10);
-  --active-bg: rgba(255, 255, 255, 0.15);
-  --shadow-card: 0 16px 40px rgba(0, 0, 0, 0.25);
-  --shadow-glow: 0 0 15px rgba(255, 255, 255, 0.02);
+  --border-glass: rgba(255, 255, 255, 0.06);
+  --hover-bg: rgba(255, 255, 255, 0.12);
+  --active-bg: rgba(255, 255, 255, 0.18);
+  --shadow-card: 0 16px 40px rgba(0, 0, 0, 0.3);
+  --shadow-glow: 0 0 15px rgba(255, 255, 255, 0.03);
   --accent: #60a5fa;
   --active-text: #0f131a;
 }
