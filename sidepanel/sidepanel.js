@@ -190,7 +190,7 @@ async function loadHistory(searchQuery = '') {
         <span class="history-term" title="${escapeHtml(item.term)}">${escapeHtml(item.term)}</span>
         <span class="history-time">${formattedDate}</span>
       </div>
-      <div class="history-explanation" id="exp-${index}">${escapeHtml(item.explanation)}</div>
+      <div class="history-explanation" id="exp-${index}">${parseMarkdown(item.explanation)}</div>
       <div class="history-footer">
         <a class="history-url" href="${escapeHtml(item.url)}" target="_blank" title="${escapeHtml(item.url)}">${getDomain(item.url)}</a>
         <button class="delete-item-btn" id="del-${index}" title="Delete record">
@@ -316,4 +316,68 @@ function escapeHtml(text) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+// Custom Markdown parser for dictionary/summary rendering inside sidebar cards
+function parseMarkdown(text) {
+  if (!text) return '';
+  let html = text.trim();
+
+  // Escape HTML contents
+  html = escapeHtml(html);
+
+  // 1. Render Dictionary Dividers (e.g. "term | phonetic" or "word | partOfSpeech")
+  html = html.replace(/^([^*|\n]+?)\s*\|\s*([^\n]+)/gm, '<div class="dict-title-inline">$1</div><div class="dict-pos">$2</div>');
+
+  // 2. Headings
+  html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
+  html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');
+  html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>');
+
+  // 3. Examples block
+  html = html.replace(/(?:\*|_)(Example:\s*[^*_\n]+)(?:\*|_)/gim, '<div class="dict-example">$1</div>');
+
+  // 4. Code Blocks and Inline Code
+  html = html.replace(/`([^`\n]+)`/g, '<code class="md-code">$1</code>');
+
+  // 5. Bold & Italic
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong class="md-bold">$1</strong>');
+  html = html.replace(/\*([^*]+)\*/g, '<em class="md-italic">$1</em>');
+  html = html.replace(/_([^_]+)_/g, '<em class="md-italic">$1</em>');
+
+  // 6. Paragraph and list grouping
+  const blocks = html.split(/\n\n+/);
+  const parsedBlocks = blocks.map(block => {
+    const trimmed = block.trim();
+    if (!trimmed) return '';
+    if (trimmed.startsWith('<h') || trimmed.startsWith('<div') || trimmed.startsWith('<ul') || trimmed.startsWith('<ol')) {
+      return trimmed;
+    }
+
+    if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+      const lines = trimmed.split(/\n/);
+      const listItems = lines.map(line => {
+        line = line.trim();
+        if (line.startsWith('- ') || line.startsWith('* ')) {
+          return `<li class="md-list-item">${line.substring(2).trim()}</li>`;
+        }
+        return '';
+      }).filter(Boolean);
+      return `<ul class="md-list">${listItems.join('')}</ul>`;
+    }
+
+    if (/^\d+\.\s+/.test(trimmed)) {
+      const lines = trimmed.split(/\n/);
+      const listItems = lines.map(line => {
+        line = line.trim();
+        const match = line.match(/^\d+\.\s+(.*)/);
+        return match ? `<li class="md-list-item">${match[1]}</li>` : '';
+      }).filter(Boolean);
+      return `<ol class="md-list">${listItems.join('')}</ol>`;
+    }
+
+    return `<p>${trimmed.replace(/\n/g, '<br>')}</p>`;
+  });
+
+  return parsedBlocks.join('');
 }

@@ -580,3 +580,67 @@ textarea.text-input {
     transform: rotate(360deg);
   }
 }
+
+/* Markdown Parsing inside Sidebar cards */
+.history-explanation h1,
+.history-explanation h2,
+.history-explanation h3 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin-top: 6px;
+  margin-bottom: 4px;
+  color: var(--text-primary);
+}
+.history-explanation p {
+  margin-bottom: 6px;
+}
+.history-explanation p:last-child {
+  margin-bottom: 0;
+}
+.history-explanation .md-bold {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.history-explanation .md-italic {
+  font-style: italic;
+}
+.history-explanation .md-code {
+  font-family: monospace;
+  background: var(--bg-button);
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-size: 0.85em;
+  color: var(--text-primary);
+  border: 1px solid var(--border-glass);
+}
+.history-explanation .md-list {
+  margin-left: 16px;
+  margin-bottom: 6px;
+  padding-left: 0;
+}
+.history-explanation .md-list-item {
+  margin-bottom: 2px;
+}
+.history-explanation .dict-title-inline {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  display: inline-block;
+  margin-right: 6px;
+}
+.history-explanation .dict-pos {
+  font-style: italic;
+  font-size: 0.78rem;
+  color: var(--accent);
+  margin-bottom: 4px;
+  font-weight: 500;
+  display: inline-block;
+}
+.history-explanation .dict-example {
+  border-left: 2px solid var(--accent);
+  padding-left: 6px;
+  margin: 4px 0;
+  font-style: italic;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}

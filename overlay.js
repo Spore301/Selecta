@@ -71,6 +71,7 @@ class SelectaOverlay {
             </button>
           </div>
         </div>
+        <div class="resize-handle" id="selecta-resize-handle"></div>
       </div>
     `;
     this.wrapper.appendChild(this.overlayElement);
@@ -117,6 +118,9 @@ class SelectaOverlay {
       this.resumeService();
     });
 
+    // Setup drag and resize controllers
+    this.setupDragAndResize();
+
     // Check if the service is already paused on load to show badge
     chrome.storage.local.get({ enabled: true }, (res) => {
       if (!res.enabled) {
@@ -128,6 +132,19 @@ class SelectaOverlay {
   show(term, context, mode, selectedText) {
     this.init();
     this.hidePausedBadge();
+
+    // Reset overlay styles to default top-center position before rendering
+    if (this.overlayElement) {
+      this.overlayElement.style.left = '50%';
+      this.overlayElement.style.top = '16px';
+      this.overlayElement.style.transform = 'translate(-50%, 0)';
+      this.overlayElement.style.width = '90%';
+      this.overlayElement.style.maxWidth = '480px';
+      this.overlayElement.style.height = 'auto';
+      
+      const body = this.shadow.getElementById('selecta-body');
+      body.style.maxHeight = '220px';
+    }
 
     // Load active theme
     chrome.storage.local.get({ theme: 'system' }, (res) => {
@@ -347,6 +364,105 @@ class SelectaOverlay {
     } catch (err) {
       console.error('Failed to copy text:', err);
     }
+  }
+
+  // Setup header dragging and handle resizing event listeners
+  setupDragAndResize() {
+    this.isDragging = false;
+    this.dragStartX = 0;
+    this.dragStartY = 0;
+    this.dragInitialLeft = 0;
+    this.dragInitialTop = 0;
+
+    this.isResizing = false;
+    this.resizeStartX = 0;
+    this.resizeStartY = 0;
+    this.resizeInitialWidth = 0;
+    this.resizeInitialHeight = 0;
+
+    const header = this.shadow.querySelector('.overlay-header');
+    header.style.cursor = 'move';
+
+    // Drag listener
+    header.addEventListener('mousedown', (e) => {
+      // Avoid dragging when interacting with button triggers
+      if (e.target.closest('.action-btn')) return;
+
+      this.isDragging = true;
+      this.dragStartX = e.clientX;
+      this.dragStartY = e.clientY;
+
+      const rect = this.overlayElement.getBoundingClientRect();
+      this.dragInitialLeft = rect.left;
+      this.dragInitialTop = rect.top;
+
+      // Set explicit values to coordinate dragging
+      this.overlayElement.style.left = this.dragInitialLeft + 'px';
+      this.overlayElement.style.top = this.dragInitialTop + 'px';
+      this.overlayElement.style.transform = 'none';
+      this.overlayElement.style.margin = '0';
+      this.overlayElement.style.right = 'auto';
+      this.overlayElement.style.maxWidth = 'none';
+
+      e.preventDefault();
+
+      const onMouseMove = (moveEvent) => {
+        if (!this.isDragging) return;
+        const dx = moveEvent.clientX - this.dragStartX;
+        const dy = moveEvent.clientY - this.dragStartY;
+        this.overlayElement.style.left = (this.dragInitialLeft + dx) + 'px';
+        this.overlayElement.style.top = (this.dragInitialTop + dy) + 'px';
+      };
+
+      const onMouseUp = () => {
+        this.isDragging = false;
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+      };
+
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    });
+
+    // Resize listener
+    const resizeHandle = this.shadow.getElementById('selecta-resize-handle');
+    resizeHandle.addEventListener('mousedown', (e) => {
+      this.isResizing = true;
+      this.resizeStartX = e.clientX;
+      this.resizeStartY = e.clientY;
+
+      const rect = this.overlayElement.getBoundingClientRect();
+      this.resizeInitialWidth = rect.width;
+      this.resizeInitialHeight = rect.height;
+
+      e.preventDefault();
+      e.stopPropagation(); // Avoid triggering header mousedown
+
+      const onMouseMove = (moveEvent) => {
+        if (!this.isResizing) return;
+        const dw = moveEvent.clientX - this.resizeStartX;
+        const dh = moveEvent.clientY - this.resizeStartY;
+
+        const newWidth = Math.max(340, this.resizeInitialWidth + dw);
+        const newHeight = Math.max(180, this.resizeInitialHeight + dh);
+
+        this.overlayElement.style.width = newWidth + 'px';
+        this.overlayElement.style.height = newHeight + 'px';
+        this.overlayElement.style.maxHeight = 'none';
+
+        const body = this.shadow.getElementById('selecta-body');
+        body.style.maxHeight = 'none';
+      };
+
+      const onMouseUp = () => {
+        this.isResizing = false;
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+      };
+
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    });
   }
 
   // Escape HTML helper
