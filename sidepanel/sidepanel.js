@@ -1,341 +1,319 @@
 // sidepanel.js
 
 document.addEventListener('DOMContentLoaded', () => {
-  // DOM Elements
-  const tabHistory = document.getElementById('tab-history');
-  const tabSettings = document.getElementById('tab-settings');
+  initTabs();
+  initSettings();
+  loadHistory();
+  initStorageListener();
+});
+
+// 1. Navigation Tab Switches
+function initTabs() {
+  const btnHistory = document.getElementById('tab-history');
+  const btnSettings = document.getElementById('tab-settings');
   const paneHistory = document.getElementById('pane-history');
   const paneSettings = document.getElementById('pane-settings');
 
-  const toggleService = document.getElementById('toggle-service');
-  const historySearch = document.getElementById('history-search');
-  const historyList = document.getElementById('history-list');
-  const historyEmpty = document.getElementById('history-empty');
-
-  const inputApiKey = document.getElementById('input-api-key');
-  const btnSaveKey = document.getElementById('btn-save-key');
-  const btnSaveText = document.getElementById('btn-save-text');
-  const btnSaveSpinner = document.getElementById('btn-save-spinner');
-  const keyStatusMsg = document.getElementById('key-status-msg');
-  const toggleKeyVisibility = document.getElementById('toggle-key-visibility');
-
-  const selectMode = document.getElementById('select-mode');
-  const groupSlider = document.getElementById('group-slider');
-  const inputSlider = document.getElementById('input-slider');
-  const sliderValueDisplay = document.getElementById('slider-value-display');
-  const sliderDescription = document.getElementById('slider-description');
-
-  const inputBlocklist = document.getElementById('input-blocklist');
-  const selectTheme = document.getElementById('select-theme');
-  const btnClearHistory = document.getElementById('btn-clear-history');
-
-  let activeHistory = [];
-
-  // --- Initial Configuration & State Loader ---
-  function init() {
-    // Load Settings
-    chrome.storage.local.get({
-      enabled: true,
-      apiKey: '',
-      mode: 'auto',
-      wordLimit: 30,
-      blocklist: '',
-      theme: 'system'
-    }, (settings) => {
-      // Toggle
-      toggleService.checked = settings.enabled;
-      
-      // API Key
-      inputApiKey.value = settings.apiKey;
-      
-      // Mode & Slider
-      selectMode.value = settings.mode;
-      inputSlider.value = settings.wordLimit;
-      updateSliderUI(settings.mode, settings.wordLimit);
-
-      // Blocklist
-      inputBlocklist.value = settings.blocklist;
-
-      // Theme
-      selectTheme.value = settings.theme;
-      applyTheme(settings.theme);
-
-      // Load lookup history list
-      loadHistory();
-    });
-
-    // Setup listener for history changes reported by background worker
-    chrome.runtime.onMessage.addListener((message) => {
-      if (message.type === 'history_updated') {
-        loadHistory();
-      }
-    });
-  }
-
-  // --- Theme Management ---
-  function applyTheme(theme) {
-    let activeTheme = theme;
-    if (theme === 'system') {
-      activeTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-    }
-    document.body.setAttribute('data-theme', activeTheme);
-  }
-
-  selectTheme.addEventListener('change', () => {
-    const val = selectTheme.value;
-    chrome.storage.local.set({ theme: val }, () => {
-      applyTheme(val);
-    });
-  });
-
-  // Watch system preferences changes if 'system' is selected
-  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-    if (selectTheme.value === 'system') {
-      applyTheme('system');
-    }
-  });
-
-  // --- Navigation Controls ---
-  tabHistory.addEventListener('click', () => {
-    tabHistory.classList.add('active');
-    tabSettings.classList.remove('active');
+  btnHistory.addEventListener('click', () => {
+    btnHistory.classList.add('active');
+    btnSettings.classList.remove('active');
     paneHistory.classList.remove('hidden');
     paneSettings.classList.add('hidden');
-    loadHistory(); // Refresh lists when opening tab
   });
 
-  tabSettings.addEventListener('click', () => {
-    tabSettings.classList.add('active');
-    tabHistory.classList.remove('active');
+  btnSettings.addEventListener('click', () => {
+    btnSettings.classList.add('active');
+    btnHistory.classList.remove('active');
     paneSettings.classList.remove('hidden');
     paneHistory.classList.add('hidden');
   });
+}
 
-  // --- Service Toggle ON/OFF ---
-  toggleService.addEventListener('change', () => {
-    chrome.storage.local.set({ enabled: toggleService.checked });
+// 2. Settings Synchronization & Custom Event Handlers
+async function initSettings() {
+  const serviceToggle = document.getElementById('service-toggle');
+  const apiKeyInput = document.getElementById('api-key-input');
+  const toggleKeyBtn = document.getElementById('toggle-key-visibility');
+  const testKeyBtn = document.getElementById('test-key-btn');
+  const modeSelect = document.getElementById('mode-select');
+  const sliderGroup = document.getElementById('slider-group');
+  const limitSlider = document.getElementById('word-limit-slider');
+  const limitVal = document.getElementById('word-limit-val');
+  const blocklistInput = document.getElementById('blocklist-input');
+  const themeSelect = document.getElementById('theme-select');
+  const clearHistoryBtn = document.getElementById('clear-history-btn');
+
+  // Load current values
+  const settings = await chrome.storage.local.get({
+    enabled: true,
+    apiKey: '',
+    mode: 'auto',
+    wordLimit: 30,
+    blocklist: '',
+    theme: 'system'
   });
 
-  // --- Mode & Slider Threshold Settings ---
-  selectMode.addEventListener('change', () => {
-    const mode = selectMode.value;
-    const limit = parseInt(inputSlider.value, 10);
-    chrome.storage.local.set({ mode });
-    updateSliderUI(mode, limit);
+  // Apply service state toggle
+  serviceToggle.checked = settings.enabled;
+  updateStatusText(settings.enabled);
+  serviceToggle.addEventListener('change', () => {
+    const isEnabled = serviceToggle.checked;
+    chrome.storage.local.set({ enabled: isEnabled });
+    updateStatusText(isEnabled);
   });
 
-  inputSlider.addEventListener('input', () => {
-    const mode = selectMode.value;
-    const limit = parseInt(inputSlider.value, 10);
-    chrome.storage.local.set({ wordLimit: limit });
-    updateSliderUI(mode, limit);
-  });
-
-  function updateSliderUI(mode, limit) {
-    sliderValueDisplay.textContent = `${limit} words`;
-    sliderDescription.textContent = `Dictionary if selection <= ${limit} words, Summarize if larger.`;
-    
-    if (mode === 'auto') {
-      groupSlider.classList.remove('disabled');
-      inputSlider.disabled = false;
+  // Apply API Key field
+  apiKeyInput.value = settings.apiKey;
+  
+  // Password Visibility Toggle
+  toggleKeyBtn.addEventListener('click', () => {
+    if (apiKeyInput.type === 'password') {
+      apiKeyInput.type = 'text';
     } else {
-      groupSlider.classList.add('disabled');
-      inputSlider.disabled = true;
-    }
-  }
-
-  // --- Site Blocklist Settings ---
-  inputBlocklist.addEventListener('input', () => {
-    chrome.storage.local.set({ blocklist: inputBlocklist.value });
-  });
-
-  // --- API Key Visiblity Toggle ---
-  toggleKeyVisibility.addEventListener('click', (e) => {
-    e.preventDefault();
-    if (inputApiKey.type === 'password') {
-      inputApiKey.type = 'text';
-      toggleKeyVisibility.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>`;
-    } else {
-      inputApiKey.type = 'password';
-      toggleKeyVisibility.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>`;
+      apiKeyInput.type = 'password';
     }
   });
 
-  // --- Save & Test API Key ---
-  btnSaveKey.addEventListener('click', () => {
-    const key = inputApiKey.value.trim();
-    if (!key) {
-      showKeyStatus('Please enter a key.', 'error');
-      return;
-    }
+  // API Key Testing
+  testKeyBtn.addEventListener('click', async () => {
+    const key = apiKeyInput.value.trim();
+    showValidationMsg('testing', 'Testing key, please wait...');
 
-    // Set loading spinner state
-    btnSaveSpinner.classList.remove('hidden');
-    btnSaveText.textContent = 'Testing...';
-    btnSaveKey.disabled = true;
-    showKeyStatus('', '');
+    testKeyBtn.disabled = true;
+    document.getElementById('test-spinner').classList.remove('hidden');
+    document.getElementById('test-btn-text').textContent = 'Testing...';
 
-    // Send key message to background context to execute test fetches (bypass CORS)
-    chrome.runtime.sendMessage({ type: 'test_key', apiKey: key }, (res) => {
-      // Revert loading states
-      btnSaveSpinner.classList.add('hidden');
-      btnSaveText.textContent = 'Test & Save';
-      btnSaveKey.disabled = false;
+    chrome.runtime.sendMessage({ type: 'validate-key', apiKey: key }, (response) => {
+      testKeyBtn.disabled = false;
+      document.getElementById('test-spinner').classList.add('hidden');
+      document.getElementById('test-btn-text').textContent = 'Test & Save';
 
-      if (res && res.success) {
+      if (response && response.success) {
         chrome.storage.local.set({ apiKey: key }, () => {
-          showKeyStatus('API Key is valid and saved!', 'success');
+          showValidationMsg('success', 'Key tested and saved successfully!');
         });
       } else {
-        const errorMsg = (res && res.error) ? res.error : 'Invalid API key validation test.';
-        showKeyStatus(errorMsg, 'error');
+        const errorMsg = (response && response.error) ? response.error : 'Invalid API key or network error.';
+        showValidationMsg('error', errorMsg);
       }
     });
   });
 
-  function showKeyStatus(msg, type) {
-    keyStatusMsg.textContent = msg;
-    keyStatusMsg.className = 'validation-msg';
-    if (type === 'success') {
-      keyStatusMsg.classList.add('success');
-    } else if (type === 'error') {
-      keyStatusMsg.classList.add('error');
-    }
-  }
+  // Apply companion Mode
+  modeSelect.value = settings.mode;
+  toggleSliderVisibility(settings.mode, sliderGroup);
+  
+  modeSelect.addEventListener('change', () => {
+    const selectedMode = modeSelect.value;
+    chrome.storage.local.set({ mode: selectedMode });
+    toggleSliderVisibility(selectedMode, sliderGroup);
+  });
 
-  // --- Clear History Control ---
-  btnClearHistory.addEventListener('click', () => {
-    if (confirm('Are you sure you want to permanently clear your lookup history?')) {
+  // Apply Word Limit Slider
+  limitSlider.value = settings.wordLimit;
+  limitVal.textContent = `${settings.wordLimit} words`;
+  
+  limitSlider.addEventListener('input', () => {
+    const limit = parseInt(limitSlider.value, 10);
+    limitVal.textContent = `${limit} words`;
+    chrome.storage.local.set({ wordLimit: limit });
+  });
+
+  // Apply Blocklist
+  blocklistInput.value = settings.blocklist;
+  blocklistInput.addEventListener('input', () => {
+    chrome.storage.local.set({ blocklist: blocklistInput.value });
+  });
+
+  // Apply Theme Selector
+  themeSelect.value = settings.theme;
+  applyTheme(settings.theme);
+  themeSelect.addEventListener('change', () => {
+    chrome.storage.local.set({ theme: themeSelect.value });
+    applyTheme(themeSelect.value);
+  });
+
+  // Danger Zone: Clear History
+  clearHistoryBtn.addEventListener('click', () => {
+    if (confirm("Are you sure you want to clear your lookup history? This cannot be undone.")) {
       chrome.storage.local.set({ history: [] }, () => {
         loadHistory();
       });
     }
   });
+}
 
-  // --- History Management & Render Functions ---
-  function loadHistory() {
-    chrome.storage.local.get({ history: [] }, (res) => {
-      activeHistory = res.history;
-      renderHistoryList(activeHistory);
-    });
-  }
+// 3. History Retrieval & Layout Rendering
+async function loadHistory(searchQuery = '') {
+  const historyList = document.getElementById('history-list');
+  const data = await chrome.storage.local.get({ history: [] });
+  const items = data.history;
 
-  function renderHistoryList(items) {
-    // Clear list but keep empty state element
-    const emptyTemplate = historyEmpty.cloneNode(true);
-    historyList.innerHTML = '';
-    historyList.appendChild(emptyTemplate);
+  // Clear listing
+  historyList.innerHTML = '';
 
-    const query = historySearch.value.trim().toLowerCase();
-    
-    // Filter history based on search query
-    const filtered = items.filter(item => {
-      return item.term.toLowerCase().includes(query) || 
-             item.explanation.toLowerCase().includes(query);
-    });
-
-    if (filtered.length === 0) {
-      emptyTemplate.style.display = 'flex';
-      if (query) {
-        emptyTemplate.querySelector('span').textContent = 'No lookups match your query.';
-      } else {
-        emptyTemplate.querySelector('span').innerHTML = 'No explanation history yet.<br>Select any text on a web page to begin.';
-      }
-      return;
-    }
-
-    emptyTemplate.style.display = 'none';
-
-    filtered.forEach((item, index) => {
-      const itemEl = document.createElement('div');
-      itemEl.className = 'history-item';
-      
-      const formattedTime = formatTimestamp(item.timestamp);
-      const displayUrl = formatUrl(item.url);
-
-      itemEl.innerHTML = `
-        <div class="history-item-header">
-          <span class="history-term" title="${item.term}">${escapeHtml(item.term)}</span>
-          <span class="history-time">${formattedTime}</span>
-        </div>
-        <div class="history-explanation" title="Click to Expand/Collapse">${escapeHtml(item.explanation)}</div>
-        <div class="history-footer">
-          <a href="${item.url}" target="_blank" class="history-url" title="${item.url}">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 3px; display: inline; vertical-align: middle;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
-            ${escapeHtml(displayUrl)}
-          </a>
-          <button class="delete-item-btn" data-timestamp="${item.timestamp}" title="Delete Lookup">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-          </button>
-        </div>
-      `;
-
-      // Expand/Collapse text on click
-      const explanationEl = itemEl.querySelector('.history-explanation');
-      explanationEl.addEventListener('click', () => {
-        explanationEl.classList.toggle('expanded');
-      });
-
-      // Individual deletion trigger
-      const deleteBtn = itemEl.querySelector('.delete-item-btn');
-      deleteBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const stamp = deleteBtn.getAttribute('data-timestamp');
-        deleteHistoryItem(stamp);
-      });
-
-      historyList.appendChild(itemEl);
-    });
-  }
-
-  function deleteHistoryItem(timestamp) {
-    const updated = activeHistory.filter(item => item.timestamp !== timestamp);
-    chrome.storage.local.set({ history: updated }, () => {
-      loadHistory();
-    });
-  }
-
-  // --- Real-time Search Handler ---
-  historySearch.addEventListener('input', () => {
-    renderHistoryList(activeHistory);
+  const filteredItems = items.filter(item => {
+    if (!searchQuery) return true;
+    const query = searchQuery.toLowerCase();
+    const termMatch = item.term && item.term.toLowerCase().includes(query);
+    const explMatch = item.explanation && item.explanation.toLowerCase().includes(query);
+    return termMatch || explMatch;
   });
 
-  // --- String formatting helpers ---
-  function formatTimestamp(isoString) {
-    try {
-      const date = new Date(isoString);
-      const diffMs = Date.now() - date.getTime();
-      const diffMins = Math.floor(diffMs / 60000);
-      const diffHours = Math.floor(diffMins / 60);
-
-      if (diffMins < 1) return 'Just now';
-      if (diffMins < 60) return `${diffMins}m ago`;
-      if (diffHours < 24) return `${diffHours}h ago`;
-      return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-    } catch (e) {
-      return '';
-    }
+  if (filteredItems.length === 0) {
+    historyList.innerHTML = `
+      <div class="history-empty">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <span>${searchQuery ? 'No search matches found.' : 'No lookups recorded yet.<br>Select text on any webpage to begin.'}</span>
+      </div>
+    `;
+    return;
   }
 
-  function formatUrl(urlString) {
-    try {
-      const url = new URL(urlString);
-      return url.hostname.replace('www.', '');
-    } catch (e) {
-      return 'page';
-    }
-  }
+  // Render cards
+  filteredItems.forEach((item, index) => {
+    const card = document.createElement('div');
+    card.className = 'history-item';
+    
+    const formattedDate = new Date(item.timestamp).toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
 
-  function escapeHtml(text) {
-    if (!text) return '';
-    return text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
-  }
+    card.innerHTML = `
+      <div class="history-item-header">
+        <span class="history-term" title="${escapeHtml(item.term)}">${escapeHtml(item.term)}</span>
+        <span class="history-time">${formattedDate}</span>
+      </div>
+      <div class="history-explanation" id="exp-${index}">${escapeHtml(item.explanation)}</div>
+      <div class="history-footer">
+        <a class="history-url" href="${escapeHtml(item.url)}" target="_blank" title="${escapeHtml(item.url)}">${getDomain(item.url)}</a>
+        <button class="delete-item-btn" id="del-${index}" title="Delete record">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+          </svg>
+        </button>
+      </div>
+    `;
 
-  // Run initializer routines
-  init();
+    historyList.appendChild(card);
+
+    // Expand/Collapse description toggle
+    const explDiv = card.querySelector(`#exp-${index}`);
+    explDiv.addEventListener('click', () => {
+      explDiv.classList.toggle('expanded');
+    });
+
+    // Delete item trigger
+    card.querySelector(`#del-${index}`).addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (confirm(`Remove lookup for "${item.term}"?`)) {
+        await deleteHistoryItem(item.timestamp);
+      }
+    });
+  });
+}
+
+// History delete item helper
+async function deleteHistoryItem(timestamp) {
+  const data = await chrome.storage.local.get({ history: [] });
+  const updatedHistory = data.history.filter(item => item.timestamp !== timestamp);
+  await chrome.storage.local.set({ history: updatedHistory });
+  loadHistory(document.getElementById('search-input').value.trim());
+}
+
+// 4. Live Search Bindings
+document.getElementById('search-input').addEventListener('input', (e) => {
+  const val = e.target.value.trim();
+  loadHistory(val);
 });
+
+// Helper: Toggle status text label
+function updateStatusText(enabled) {
+  const label = document.getElementById('status-text');
+  label.textContent = enabled ? 'Selecta Active' : 'Selecta Paused';
+}
+
+// Helper: Show validation notifications
+function showValidationMsg(type, text) {
+  const msgDiv = document.getElementById('validation-msg');
+  msgDiv.className = 'validation-msg'; // reset classes
+  msgDiv.classList.remove('hidden');
+
+  if (type === 'success') {
+    msgDiv.classList.add('success');
+    msgDiv.textContent = text;
+  } else if (type === 'error') {
+    msgDiv.classList.add('error');
+    msgDiv.textContent = text;
+  } else {
+    // testing message
+    msgDiv.textContent = text;
+  }
+}
+
+// Helper: Toggle slider visibility
+function toggleSliderVisibility(mode, sliderGroup) {
+  if (mode === 'auto') {
+    sliderGroup.classList.remove('hidden');
+  } else {
+    sliderGroup.classList.add('hidden');
+  }
+}
+
+// Helper: Apply dark/light/system theme
+function applyTheme(theme) {
+  if (theme === 'dark') {
+    document.documentElement.setAttribute('data-theme', 'dark');
+  } else if (theme === 'light') {
+    document.documentElement.setAttribute('data-theme', 'light');
+  } else {
+    // system theme matching
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    document.documentElement.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
+  }
+}
+
+// Helper: Storage Change Listener (updates listings automatically when background saves lookups)
+function initStorageListener() {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local') {
+      if (changes.history) {
+        const query = document.getElementById('search-input').value.trim();
+        loadHistory(query);
+      }
+      if (changes.enabled) {
+        document.getElementById('service-toggle').checked = changes.enabled.newValue;
+        updateStatusText(changes.enabled.newValue);
+      }
+    }
+  });
+}
+
+// Helper: Extract domain label from raw URL
+function getDomain(urlStr) {
+  if (!urlStr) return 'Local Page';
+  try {
+    const url = new URL(urlStr);
+    return url.hostname.replace('www.', '');
+  } catch (e) {
+    return 'Webpage';
+  }
+}
+
+// Helper: Escape HTML
+function escapeHtml(text) {
+  if (!text) return '';
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
