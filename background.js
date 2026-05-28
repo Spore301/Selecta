@@ -77,6 +77,9 @@ async function validateApiKey(apiKey) {
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== 'selecta-stream') return;
 
+  const tabId = port.sender && port.sender.tab ? port.sender.tab.id : 'default';
+  const sessionKey = `selecta_session_${tabId}`;
+
   port.isDisconnected = false;
   port.onDisconnect.addListener(() => {
     port.isDisconnected = true;
@@ -110,16 +113,23 @@ chrome.runtime.onConnect.addListener((port) => {
         userPrompt = `Selected Text: ${term}\nSurrounding Context: ${context}`;
       }
 
-      // Initialize port conversation memory
-      port.conversation = [
+      const conversation = [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }
       ];
-      port.url = url;
-      port.term = term || (selectedText ? selectedText.slice(0, 30) + '...' : 'Text Selection');
+      const resolvedTerm = term || (selectedText ? selectedText.slice(0, 30) + '...' : 'Text Selection');
+
+      // Initialize session store
+      await chrome.storage.local.set({
+        [sessionKey]: {
+          conversation,
+          url,
+          term: resolvedTerm
+        }
+      });
 
       // Trigger streaming completion
-      await streamDeepSeek(port, apiKey);
+      await streamDeepSeek(port, apiKey, conversation, sessionKey);
 
     } else if (msg.type === 'chat') {
       const { text } = msg;
@@ -133,22 +143,29 @@ chrome.runtime.onConnect.addListener((port) => {
         return;
       }
 
-      if (!port.conversation) {
+      const sessionData = await chrome.storage.local.get(sessionKey);
+      const session = sessionData[sessionKey];
+
+      if (!session || !session.conversation) {
         port.postMessage({ type: 'error', message: 'No active chat session found.' });
         return;
       }
 
-      // Add follow-up question to messages
-      port.conversation.push({ role: 'user', content: text });
+      const conversation = session.conversation;
+      conversation.push({ role: 'user', content: text });
+
+      // Save immediate state
+      session.conversation = conversation;
+      await chrome.storage.local.set({ [sessionKey]: session });
 
       // Trigger streaming completion for follow-up
-      await streamDeepSeek(port, apiKey);
+      await streamDeepSeek(port, apiKey, conversation, sessionKey);
     }
   });
 });
 
 // Orchestrates SSE fetch stream and communicates with content script port
-async function streamDeepSeek(port, apiKey) {
+async function streamDeepSeek(port, apiKey, conversation, sessionKey) {
   try {
     if (port.isDisconnected) return;
 
@@ -160,7 +177,7 @@ async function streamDeepSeek(port, apiKey) {
       },
       body: JSON.stringify({
         model: 'deepseek-chat',
-        messages: port.conversation,
+        messages: conversation,
         stream: true
       })
     });
@@ -239,7 +256,7 @@ async function streamDeepSeek(port, apiKey) {
     }
 
     // Save final response text to current session memory
-    port.conversation.push({ role: 'assistant', content: responseText });
+    conversation.push({ role: 'assistant', content: responseText });
 
     if (!port.isDisconnected) {
       // Notify completion
@@ -247,12 +264,19 @@ async function streamDeepSeek(port, apiKey) {
 
       // Save this lookup to History in chrome.storage.local
       // We only save primary lookups (not individual counter-chats)
-      // We detect if this was the first assistant response in conversation
       // (length === 3: system, user, assistant)
-      if (port.conversation.length === 3) {
-        await saveLookupToHistory(port.term, responseText, port.url);
+      if (conversation.length === 3) {
+        const sessionData = await chrome.storage.local.get(sessionKey);
+        const session = sessionData[sessionKey] || {};
+        await saveLookupToHistory(session.term || 'Text Selection', responseText, session.url || '');
       }
     }
+
+    // Persist updated conversation memory
+    const sessionData = await chrome.storage.local.get(sessionKey);
+    const session = sessionData[sessionKey] || {};
+    session.conversation = conversation;
+    await chrome.storage.local.set({ [sessionKey]: session });
 
   } catch (err) {
     if (!port.isDisconnected) {
@@ -286,3 +310,8 @@ async function saveLookupToHistory(term, explanation, url) {
     console.error('Error saving history record:', e);
   }
 }
+
+// Cleanup tab session storage when tab is closed
+chrome.tabs.onRemoved.addListener((closedTabId) => {
+  chrome.storage.local.remove(`selecta_session_${closedTabId}`);
+});

@@ -222,34 +222,44 @@ if (!window.selectaOverlay) {
     // Disconnect old port if any
     if (this.currentPort) {
       this.currentPort.disconnect();
+      this.currentPort = null;
     }
 
-    // Connect to background script with error boundaries
+    this.reconnectPort();
+
+    this.activeStreamingText = '';
+    this.activeStreamingContainer = mainContent;
+
+    // Send search message
+    this.currentPort.postMessage({
+      type: 'start',
+      term,
+      context,
+      mode,
+      selectedText,
+      url: window.location.href
+    });
+  }
+
+  reconnectPort() {
     try {
       this.currentPort = chrome.runtime.connect({ name: 'selecta-stream' });
-      this.activeStreamingText = '';
-      this.activeStreamingContainer = mainContent;
-
-      // Send search message
-      this.currentPort.postMessage({
-        type: 'start',
-        term,
-        context,
-        mode,
-        selectedText,
-        url: window.location.href
-      });
-
       this.currentPort.onDisconnect.addListener(() => {
         console.warn("[Selecta] Port disconnected.");
         this.currentPort = null;
-        const activeInput = this.shadow.getElementById('selecta-chat-input');
-        if (activeInput) {
-          activeInput.disabled = true;
-          activeInput.placeholder = "Connection lost. Please select text again.";
+        
+        // If the user was in the middle of active streaming (loading or chunk),
+        // show a connection error message. Otherwise, we keep the inputs enabled
+        // so they can type their next question and we automatically reconnect on send.
+        if (this.overlayElement && this.overlayElement.classList.contains('visible')) {
+          if (this.activeStreamingContainer && this.activeStreamingContainer.querySelector('.loading-dots')) {
+            this.activeStreamingContainer.innerHTML = `<span class="error-text">Connection lost. Please select text again.</span>`;
+            const activeInput = this.shadow.getElementById('selecta-chat-input');
+            const activeSend = this.shadow.getElementById('selecta-chat-send');
+            if (activeInput) activeInput.disabled = true;
+            if (activeSend) activeSend.disabled = true;
+          }
         }
-        const activeSend = this.shadow.getElementById('selecta-chat-send');
-        if (activeSend) activeSend.disabled = true;
       });
 
       this.currentPort.onMessage.addListener((msg) => {
@@ -300,14 +310,25 @@ if (!window.selectaOverlay) {
     }
   }
 
+  showError(message) {
+    const mainContent = this.shadow.getElementById('selecta-main-content');
+    if (mainContent) {
+      mainContent.innerHTML = `<span class="error-text">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+        ${message}
+      </span>`;
+    }
+  }
+
   submitFollowUp() {
     const chatInput = this.shadow.getElementById('selecta-chat-input');
     const question = chatInput.value.trim();
-    if (!question || !this.currentPort) return;
+    if (!question) return;
 
     chatInput.value = '';
     chatInput.disabled = true;
-    this.shadow.getElementById('selecta-chat-send').disabled = true;
+    const activeSend = this.shadow.getElementById('selecta-chat-send');
+    if (activeSend) activeSend.disabled = true;
 
     this.chatTurnCounter++;
     const turnId = this.chatTurnCounter;
@@ -334,11 +355,22 @@ if (!window.selectaOverlay) {
     this.activeStreamingText = '';
     this.activeStreamingContainer = turnDiv.querySelector('.chat-answer');
 
-    // Send query to background
-    this.currentPort.postMessage({
-      type: 'chat',
-      text: question
-    });
+    // Auto-reconnect if port was closed
+    if (!this.currentPort) {
+      this.reconnectPort();
+    }
+
+    if (this.currentPort) {
+      // Send query to background
+      this.currentPort.postMessage({
+        type: 'chat',
+        text: question
+      });
+    } else {
+      if (this.activeStreamingContainer) {
+        this.activeStreamingContainer.innerHTML = `<span class="error-text">Failed to reconnect to extension background service worker. Please select text again.</span>`;
+      }
+    }
   }
 
   hide() {
