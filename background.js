@@ -1,9 +1,33 @@
-// background.js
-
 // Configure Side Panel behavior to open on action click
 chrome.sidePanel
   .setPanelBehavior({ openPanelOnActionClick: true })
   .catch((error) => console.error("Error setting panel behavior:", error));
+
+// Automatically inject extension scripts into existing tabs on install/update
+chrome.runtime.onInstalled.addListener(async () => {
+  try {
+    const tabs = await chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] });
+    for (const tab of tabs) {
+      if (!tab.url || tab.url.startsWith('chrome://') || tab.url.includes('chromewebstore.google.com') || tab.url.includes('chrome.google.com/webstore')) {
+        continue;
+      }
+      try {
+        await chrome.scripting.insertCSS({
+          target: { tabId: tab.id },
+          files: ['overlay.css']
+        });
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ['overlay.js', 'content.js']
+        });
+      } catch (err) {
+        console.warn(`[Selecta] Skipping injection on tab ${tab.id}:`, err.message);
+      }
+    }
+  } catch (err) {
+    console.error("[Selecta] Tab query on install failed:", err);
+  }
+});
 
 // Message listener for popup/settings actions (e.g. testing the API key)
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -52,6 +76,11 @@ async function validateApiKey(apiKey) {
 // Connection listener for page-wide text lookup streams
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== 'selecta-stream') return;
+
+  port.isDisconnected = false;
+  port.onDisconnect.addListener(() => {
+    port.isDisconnected = true;
+  });
 
   port.onMessage.addListener(async (msg) => {
     if (msg.type === 'start') {
@@ -121,6 +150,8 @@ chrome.runtime.onConnect.addListener((port) => {
 // Orchestrates SSE fetch stream and communicates with content script port
 async function streamDeepSeek(port, apiKey) {
   try {
+    if (port.isDisconnected) return;
+
     const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -143,7 +174,9 @@ async function streamDeepSeek(port, apiKey) {
           errorMsg = errorJson.error.message;
         }
       } catch (e) {}
-      port.postMessage({ type: 'error', message: errorMsg });
+      if (!port.isDisconnected) {
+        port.postMessage({ type: 'error', message: errorMsg });
+      }
       return;
     }
 
@@ -153,6 +186,11 @@ async function streamDeepSeek(port, apiKey) {
     let responseText = '';
 
     while (true) {
+      if (port.isDisconnected) {
+        reader.cancel();
+        return;
+      }
+
       const { done, value } = await reader.read();
       if (done) break;
 
@@ -171,7 +209,12 @@ async function streamDeepSeek(port, apiKey) {
             const content = data.choices[0]?.delta?.content || '';
             if (content) {
               responseText += content;
-              port.postMessage({ type: 'chunk', text: content });
+              if (!port.isDisconnected) {
+                port.postMessage({ type: 'chunk', text: content });
+              } else {
+                reader.cancel();
+                return;
+              }
             }
           } catch (e) {
             console.error('Error parsing stream chunk:', trimmed, e);
@@ -187,7 +230,7 @@ async function streamDeepSeek(port, apiKey) {
         try {
           const data = JSON.parse(trimmed.slice(6));
           const content = data.choices[0]?.delta?.content || '';
-          if (content) {
+          if (content && !port.isDisconnected) {
             responseText += content;
             port.postMessage({ type: 'chunk', text: content });
           }
@@ -198,19 +241,23 @@ async function streamDeepSeek(port, apiKey) {
     // Save final response text to current session memory
     port.conversation.push({ role: 'assistant', content: responseText });
 
-    // Notify completion
-    port.postMessage({ type: 'done', fullText: responseText });
+    if (!port.isDisconnected) {
+      // Notify completion
+      port.postMessage({ type: 'done', fullText: responseText });
 
-    // Save this lookup to History in chrome.storage.local
-    // We only save primary lookups (not individual counter-chats)
-    // We detect if this was the first assistant response in conversation
-    // (length === 3: system, user, assistant)
-    if (port.conversation.length === 3) {
-      await saveLookupToHistory(port.term, responseText, port.url);
+      // Save this lookup to History in chrome.storage.local
+      // We only save primary lookups (not individual counter-chats)
+      // We detect if this was the first assistant response in conversation
+      // (length === 3: system, user, assistant)
+      if (port.conversation.length === 3) {
+        await saveLookupToHistory(port.term, responseText, port.url);
+      }
     }
 
   } catch (err) {
-    port.postMessage({ type: 'error', message: err.message || 'A network error occurred' });
+    if (!port.isDisconnected) {
+      port.postMessage({ type: 'error', message: err.message || 'A network error occurred' });
+    }
   }
 }
 

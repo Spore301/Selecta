@@ -1,6 +1,7 @@
 // overlay.js
 
-class SelectaOverlay {
+if (!window.selectaOverlay) {
+  class SelectaOverlay {
   constructor() {
     this.host = null;
     this.shadow = null;
@@ -566,7 +567,8 @@ class SelectaOverlay {
 
     return parsedBlocks.join('');
   }
-}
+  }
 
-// Bind to window to share with content.js
-window.selectaOverlay = new SelectaOverlay();
+  // Bind to window to share with content.js
+  window.selectaOverlay = new SelectaOverlay();
+}

@@ -1,6 +1,9 @@
 // content.js
 
-let selectDebounceTimer = null;
+if (!window.selectaContentScriptLoaded) {
+  window.selectaContentScriptLoaded = true;
+
+  let selectDebounceTimer = null;
 
 // Listen to mouseup to capture selections
 document.addEventListener('mouseup', handleTextSelection);
@@ -208,16 +211,17 @@ function getSelectedContext(selection) {
   }
 }
 
-// Listen to storage changes to coordinate the Grammarly-style paused badge
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && window.selectaOverlay) {
-    if (changes.enabled) {
-      const enabled = changes.enabled.newValue;
-      if (enabled) {
-        window.selectaOverlay.hidePausedBadge();
-      } else {
-        window.selectaOverlay.showPausedBadge();
+  // Listen to storage changes to coordinate the Grammarly-style paused badge
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && window.selectaOverlay) {
+      if (changes.enabled) {
+        const enabled = changes.enabled.newValue;
+        if (enabled) {
+          window.selectaOverlay.hidePausedBadge();
+        } else {
+          window.selectaOverlay.showPausedBadge();
+        }
       }
     }
-  }
-});
+  });
+}
