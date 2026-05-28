@@ -8,7 +8,14 @@ if (!window.selectaContentScriptLoaded) {
 // Listen to mouseup to capture selections
 document.addEventListener('mouseup', handleTextSelection);
 
-function handleTextSelection() {
+function handleTextSelection(event) {
+  if (event) {
+    const path = event.composedPath ? event.composedPath() : [];
+    if (path.some(el => el.id === 'selecta-overlay-host')) {
+      return;
+    }
+  }
+
   if (selectDebounceTimer) {
     clearTimeout(selectDebounceTimer);
   }
@@ -31,19 +38,10 @@ function handleTextSelection() {
         return;
       }
 
-      // Ignore selections originating inside the overlay host or its Shadow DOM
+      // Ignore selections originating inside the Shadow DOM of the overlay card
       if (selection.rangeCount > 0) {
         const range = selection.getRangeAt(0);
-        const startNode = range.startContainer;
-        
-        // Check if node is the host or inside the host (in case browser retargets selection container to host)
-        const host = document.getElementById('selecta-overlay-host');
-        if (host && (startNode === host || host.contains(startNode))) {
-          return;
-        }
-
-        // Check if node is inside the Shadow DOM of the host (non-retargeted container)
-        const startRoot = startNode.getRootNode();
+        const startRoot = range.startContainer.getRootNode();
         if (startRoot && startRoot instanceof ShadowRoot && startRoot.host && startRoot.host.id === 'selecta-overlay-host') {
           return;
         }

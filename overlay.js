@@ -123,24 +123,23 @@ if (!window.selectaOverlay) {
       this.resumeService();
     });
 
-    // Setup drag and resize controllers
-    this.setupDragAndResize();
-
-    // Listen to browser window resize to ensure overlay stays fully on screen
+    // Handle browser window resize to cap overlay height at content scrollHeight
     window.addEventListener('resize', () => {
-      if (this.overlayElement && this.overlayElement.classList.contains('visible')) {
-        const rect = this.overlayElement.getBoundingClientRect();
-        if (rect.right > window.innerWidth) {
-          const newLeft = Math.max(16, window.innerWidth - rect.width - 16);
-          this.overlayElement.style.left = newLeft + 'px';
-          this.overlayElement.style.right = 'auto';
-        }
-        if (rect.bottom > window.innerHeight) {
-          const newTop = Math.max(16, window.innerHeight - rect.height - 16);
-          this.overlayElement.style.top = newTop + 'px';
+      if (this.overlayElement && this.overlayElement.classList.contains('visible') && this.overlayElement.style.height && this.overlayElement.style.height !== 'auto') {
+        const prevHeight = this.overlayElement.style.height;
+        this.overlayElement.style.height = 'auto';
+        const naturalHeight = this.overlayElement.offsetHeight;
+        this.overlayElement.style.height = prevHeight;
+
+        const currentHeight = parseInt(this.overlayElement.style.height, 10);
+        if (currentHeight > naturalHeight) {
+          this.overlayElement.style.height = naturalHeight + 'px';
         }
       }
     });
+
+    // Setup drag and resize controllers
+    this.setupDragAndResize();
 
     // Check if the service is already paused on load to show badge
     chrome.storage.local.get({ enabled: true }, (res) => {
@@ -201,7 +200,7 @@ if (!window.selectaOverlay) {
       wordTitle.textContent = term;
     }
 
-    // Set loading indicator (no text, loading dots animation only)
+    // Set loading indicator
     mainContent.innerHTML = `
       <div class="overlay-content loading">
         <div class="loading-dots">
@@ -486,7 +485,7 @@ if (!window.selectaOverlay) {
       const rect = this.overlayElement.getBoundingClientRect();
       this.resizeInitialWidth = rect.width;
       this.resizeInitialHeight = rect.height;
-      this.resizeInitialRight = rect.right;
+      this.resizeInitialLeft = rect.left;
 
       e.preventDefault();
       e.stopPropagation(); // Avoid triggering header mousedown
@@ -494,27 +493,35 @@ if (!window.selectaOverlay) {
       const onMouseMove = (moveEvent) => {
         if (!this.isResizing) return;
         this.lastInteractTime = Date.now();
-        const dw = moveEvent.clientX - this.resizeStartX;
+        
+        // Bottom-left resizing drag:
+        // Dragging left (negative delta X) increases width.
+        // Dragging down (positive delta Y) increases height.
+        const dw = this.resizeStartX - moveEvent.clientX;
         const dh = moveEvent.clientY - this.resizeStartY;
 
-        // Resize from bottom-left: dragging left (negative dw) increases width
-        const newWidth = Math.max(340, this.resizeInitialWidth - dw);
-        
-        // Keep the right edge fixed by updating both width and left
-        const newLeft = this.resizeInitialRight - newWidth;
+        // Measure natural wrapping height of the overlay contents
+        const prevHeight = this.overlayElement.style.height;
+        this.overlayElement.style.height = 'auto';
+        const naturalHeight = this.overlayElement.offsetHeight;
+        this.overlayElement.style.height = prevHeight;
 
-        // Cap height at natural height wrapping the content
-        const naturalHeight = this.getNaturalHeight();
-        const newHeight = Math.min(Math.max(180, this.resizeInitialHeight + dh), naturalHeight);
+        const newWidth = Math.max(340, this.resizeInitialWidth + dw);
+        const newHeight = Math.min(naturalHeight, Math.max(180, this.resizeInitialHeight + dh));
 
         this.overlayElement.style.width = newWidth + 'px';
-        this.overlayElement.style.left = newLeft + 'px';
-        this.overlayElement.style.right = 'auto';
         this.overlayElement.style.height = newHeight + 'px';
         this.overlayElement.style.maxHeight = 'none';
 
+        // Shift left coordinate dynamically so the right side remains stationary
+        const actualWidthChange = newWidth - this.resizeInitialWidth;
+        this.overlayElement.style.left = (this.resizeInitialLeft - actualWidthChange) + 'px';
+        this.overlayElement.style.right = 'auto';
+
         const body = this.shadow.getElementById('selecta-body');
-        if (body) body.style.maxHeight = 'none';
+        if (body) {
+          body.style.maxHeight = 'none';
+        }
       };
 
       const onMouseUp = () => {
@@ -527,30 +534,6 @@ if (!window.selectaOverlay) {
       document.addEventListener('mousemove', onMouseMove);
       document.addEventListener('mouseup', onMouseUp);
     });
-  }
-
-  getNaturalHeight() {
-    if (!this.overlayElement) return 0;
-    const body = this.shadow.getElementById('selecta-body');
-    if (!body) return 0;
-
-    const originalHeight = this.overlayElement.style.height;
-    const originalMaxHeight = this.overlayElement.style.maxHeight;
-    const originalBodyMaxHeight = body.style.maxHeight;
-
-    // Temporarily set layout properties to auto to measure natural size wrapping content
-    this.overlayElement.style.height = 'auto';
-    this.overlayElement.style.maxHeight = 'none';
-    body.style.maxHeight = 'none';
-
-    const naturalHeight = this.overlayElement.offsetHeight;
-
-    // Restore original styles
-    this.overlayElement.style.height = originalHeight;
-    this.overlayElement.style.maxHeight = originalMaxHeight;
-    body.style.maxHeight = originalBodyMaxHeight;
-
-    return naturalHeight;
   }
 
   // Escape HTML helper
