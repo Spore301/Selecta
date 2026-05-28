@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Selecta",
   "version": "1.0.0",
-  "description": "Instant dictionary explainer and text summarizer.",
+  "description": "Instant AI Explainer & Summarizer",
   "permissions": [
     "activeTab",
     "storage",
@@ -12,11 +12,11 @@
   "background": {
     "service_worker": "background.js"
   },
-  "action": {
-    "default_title": "Selecta"
-  },
   "side_panel": {
     "default_path": "sidepanel/index.html"
+  },
+  "action": {
+    "default_title": "Open Selecta Side Panel"
   },
   "content_scripts": [
     {

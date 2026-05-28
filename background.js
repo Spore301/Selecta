@@ -1,216 +1,22 @@
 // background.js
 
-// Enable opening of the side panel when the extension icon is clicked
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
-    .catch((error) => console.error('Error setting panel behavior:', error));
-});
+// Configure Side Panel behavior to open on action click
+chrome.sidePanel
+  .setPanelBehavior({ openPanelOnActionClick: true })
+  .catch((error) => console.error("Error setting panel behavior:", error));
 
-// Listener for simple messages (e.g., API key validation)
+// Message listener for popup/settings actions (e.g. testing the API key)
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === 'test_key') {
-    testApiKey(message.apiKey).then(sendResponse);
-    return true; // Indicates async response
+  if (message.type === 'validate-key') {
+    validateApiKey(message.apiKey)
+      .then(result => sendResponse(result))
+      .catch(err => sendResponse({ success: false, error: err.message || "Unknown error" }));
+    return true; // Keep message channel open for async response
   }
 });
 
-// Connection port handler for streaming completions
-chrome.runtime.onConnect.addListener((port) => {
-  if (port.name !== 'selecta-stream') return;
-
-  let chatHistory = [];
-  let systemPrompt = '';
-  let initialTerm = '';
-  let pageUrl = '';
-
-  port.onMessage.addListener(async (msg) => {
-    if (msg.type === 'start') {
-      const { mode, term, context, url } = msg;
-      initialTerm = term;
-      pageUrl = url;
-
-      // Get API Key from storage
-      const storage = await chrome.storage.local.get(['apiKey']);
-      if (!storage.apiKey) {
-        port.postMessage({ 
-          type: 'error', 
-          message: 'API Key Required. Please click the Selecta extension icon to open the Side Panel and configure your DeepSeek API key.' 
-        });
-        return;
-      }
-
-      // Configure prompt based on mode
-      if (mode === 'dictionary') {
-        systemPrompt = 'You are a helpful, precise dictionary. Explain the selected term in a clean dictionary-style layout. Provide the part of speech, a concise definition, and optionally a brief usage example or key synonym. Use markdown formatting to make it look structured and readable. Do not add conversational filler.';
-        chatHistory = [
-          {
-            role: 'user',
-            content: `Term: ${term}\nContext: ${context}`
-          }
-        ];
-      } else {
-        systemPrompt = 'You are a concise AI text summarizer. Summarize the provided text in 2-3 brief bullet points using markdown. Keep it clear, readable, and structured. Do not add conversational filler.';
-        chatHistory = [
-          {
-            role: 'user',
-            content: `Text to summarize: ${term}`
-          }
-        ];
-      }
-
-      // Start stream
-      runStream(port, systemPrompt, chatHistory, storage.apiKey, true);
-
-    } else if (msg.type === 'followup') {
-      const { text } = msg;
-
-      // Add to conversation history
-      chatHistory.push({ role: 'user', content: text });
-
-      // Get API Key from storage
-      const storage = await chrome.storage.local.get(['apiKey']);
-      if (!storage.apiKey) {
-        port.postMessage({ type: 'error', message: 'API Key is missing.' });
-        return;
-      }
-
-      // Start stream for follow-up
-      runStream(port, systemPrompt, chatHistory, storage.apiKey, false);
-    }
-  });
-
-  // Helper to run DeepSeek completion stream
-  async function runStream(port, systemPrompt, history, apiKey, isInitial) {
-    try {
-      const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model: 'deepseek-chat',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            ...history
-          ],
-          stream: true
-        })
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        let errorMessage = `API Error: ${response.status} ${response.statusText}`;
-        try {
-          const errorJson = JSON.parse(errorText);
-          if (errorJson.error && errorJson.error.message) {
-            errorMessage = errorJson.error.message;
-          }
-        } catch (e) {}
-        port.postMessage({ type: 'error', message: errorMessage });
-        return;
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder('utf-8');
-      let buffer = '';
-      let fullAssistantMessage = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop(); // Hold onto incomplete last line
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-          if (trimmed === 'data: [DONE]') continue;
-
-          if (trimmed.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(trimmed.slice(6));
-              const choice = data.choices[0];
-              const content = choice.delta?.content || '';
-              if (content) {
-                fullAssistantMessage += content;
-                port.postMessage({ type: 'chunk', text: content });
-              }
-            } catch (e) {
-              console.error('Error parsing SSE line:', trimmed, e);
-            }
-          }
-        }
-      }
-
-      // Flush remaining buffer
-      if (buffer && buffer.startsWith('data: ')) {
-        try {
-          const trimmed = buffer.trim();
-          if (trimmed !== 'data: [DONE]') {
-            const data = JSON.parse(trimmed.slice(6));
-            const choice = data.choices[0];
-            const content = choice.delta?.content || '';
-            if (content) {
-              fullAssistantMessage += content;
-              port.postMessage({ type: 'chunk', text: content });
-            }
-          }
-        } catch (e) {}
-      }
-
-      // Save assistant message to local history array for follow-up turns
-      chatHistory.push({ role: 'assistant', content: fullAssistantMessage });
-
-      // If it is the initial lookup, write to storage history
-      if (isInitial) {
-        await saveToHistory(initialTerm, fullAssistantMessage, pageUrl);
-      }
-
-      port.postMessage({ type: 'done', text: fullAssistantMessage });
-
-    } catch (err) {
-      port.postMessage({ type: 'error', message: err.message || 'Failed to connect to DeepSeek API.' });
-    }
-  }
-});
-
-// Save lookup query to local history
-async function saveToHistory(term, explanation, url) {
-  try {
-    const result = await chrome.storage.local.get({ history: [] });
-    const history = result.history;
-
-    const newEntry = {
-      term,
-      explanation,
-      url,
-      timestamp: new Date().toISOString()
-    };
-
-    // Prepend new entry
-    history.unshift(newEntry);
-
-    // Evict older entries if size exceeds 500
-    if (history.length > 500) {
-      history.pop();
-    }
-
-    await chrome.storage.local.set({ history });
-    
-    // Notify side panel if it is open
-    chrome.runtime.sendMessage({ type: 'history_updated' }).catch(() => {
-      // Ignore error if side panel is closed
-    });
-  } catch (e) {
-    console.error('Failed to save history entry:', e);
-  }
-}
-
-// Validate API Key
-async function testApiKey(apiKey) {
+// Helper to validate a DeepSeek API key
+async function validateApiKey(apiKey) {
   try {
     const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
       method: 'POST',
@@ -229,16 +35,207 @@ async function testApiKey(apiKey) {
       return { success: true };
     } else {
       const errorText = await response.text();
-      let errorMessage = `API Error: ${response.status}`;
+      let errorMsg = `API Error: ${response.status} ${response.statusText}`;
       try {
         const errorJson = JSON.parse(errorText);
         if (errorJson.error && errorJson.error.message) {
-          errorMessage = errorJson.error.message;
+          errorMsg = errorJson.error.message;
         }
       } catch (e) {}
-      return { success: false, error: errorMessage };
+      return { success: false, error: errorMsg };
     }
   } catch (err) {
-    return { success: false, error: err.message || 'Failed to contact DeepSeek API due to a network issue.' };
+    return { success: false, error: err.message || 'Network connection failed' };
+  }
+}
+
+// Connection listener for page-wide text lookup streams
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== 'selecta-stream') return;
+
+  port.onMessage.addListener(async (msg) => {
+    if (msg.type === 'start') {
+      const { term, context, mode, selectedText, url } = msg;
+
+      // Securely fetch API key from storage
+      const storage = await chrome.storage.local.get({ apiKey: '' });
+      const apiKey = storage.apiKey;
+
+      if (!apiKey) {
+        port.postMessage({
+          type: 'error',
+          message: 'API Key Required. Open the Selecta Side Panel (click the extension icon) to configure your DeepSeek API key.'
+        });
+        return;
+      }
+
+      // Prepare appropriate prompts based on current mode
+      let systemPrompt = '';
+      let userPrompt = '';
+
+      if (mode === 'summarize') {
+        systemPrompt = `You are a concise AI text summarizer. Summarize the provided text in 2–3 brief bullet points using markdown. Keep it clear, readable, and structured. Do not add conversational filler.`;
+        userPrompt = `Text to summarize: ${selectedText}`;
+      } else {
+        systemPrompt = `You are a helpful, precise dictionary. Explain the selected term in a clean dictionary-style layout. Provide the part of speech, a concise definition, and optionally a brief usage example or key synonym. Use markdown formatting to make it look structured and readable. Do not add conversational filler.`;
+        userPrompt = `Term: ${term}\nContext: ${context}`;
+      }
+
+      // Initialize port conversation memory
+      port.conversation = [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ];
+      port.url = url;
+      port.term = term || (selectedText ? selectedText.slice(0, 30) + '...' : 'Text Selection');
+
+      // Trigger streaming completion
+      await streamDeepSeek(port, apiKey);
+
+    } else if (msg.type === 'chat') {
+      const { text } = msg;
+
+      // Securely fetch API key from storage
+      const storage = await chrome.storage.local.get({ apiKey: '' });
+      const apiKey = storage.apiKey;
+
+      if (!apiKey) {
+        port.postMessage({ type: 'error', message: 'API Key is missing.' });
+        return;
+      }
+
+      if (!port.conversation) {
+        port.postMessage({ type: 'error', message: 'No active chat session found.' });
+        return;
+      }
+
+      // Add follow-up question to messages
+      port.conversation.push({ role: 'user', content: text });
+
+      // Trigger streaming completion for follow-up
+      await streamDeepSeek(port, apiKey);
+    }
+  });
+});
+
+// Orchestrates SSE fetch stream and communicates with content script port
+async function streamDeepSeek(port, apiKey) {
+  try {
+    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'deepseek-chat',
+        messages: port.conversation,
+        stream: true
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      let errorMsg = `API Error: ${response.status}`;
+      try {
+        const errorJson = JSON.parse(errorText);
+        if (errorJson.error && errorJson.error.message) {
+          errorMsg = errorJson.error.message;
+        }
+      } catch (e) {}
+      port.postMessage({ type: 'error', message: errorMsg });
+      return;
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+    let responseText = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop(); // keep last incomplete line
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        if (trimmed === 'data: [DONE]') continue;
+
+        if (trimmed.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(trimmed.slice(6));
+            const content = data.choices[0]?.delta?.content || '';
+            if (content) {
+              responseText += content;
+              port.postMessage({ type: 'chunk', text: content });
+            }
+          } catch (e) {
+            console.error('Error parsing stream chunk:', trimmed, e);
+          }
+        }
+      }
+    }
+
+    // Process leftover buffer
+    if (buffer && buffer.startsWith('data: ')) {
+      const trimmed = buffer.trim();
+      if (trimmed !== 'data: [DONE]') {
+        try {
+          const data = JSON.parse(trimmed.slice(6));
+          const content = data.choices[0]?.delta?.content || '';
+          if (content) {
+            responseText += content;
+            port.postMessage({ type: 'chunk', text: content });
+          }
+        } catch (e) {}
+      }
+    }
+
+    // Save final response text to current session memory
+    port.conversation.push({ role: 'assistant', content: responseText });
+
+    // Notify completion
+    port.postMessage({ type: 'done', fullText: responseText });
+
+    // Save this lookup to History in chrome.storage.local
+    // We only save primary lookups (not individual counter-chats)
+    // We detect if this was the first assistant response in conversation
+    // (length === 3: system, user, assistant)
+    if (port.conversation.length === 3) {
+      await saveLookupToHistory(port.term, responseText, port.url);
+    }
+
+  } catch (err) {
+    port.postMessage({ type: 'error', message: err.message || 'A network error occurred' });
+  }
+}
+
+// Save lookup to history local storage (Max 500 records, FIFO eviction)
+async function saveLookupToHistory(term, explanation, url) {
+  try {
+    const data = await chrome.storage.local.get({ history: [] });
+    const history = data.history;
+
+    const newRecord = {
+      term: term,
+      explanation: explanation,
+      url: url || '',
+      timestamp: new Date().toISOString()
+    };
+
+    // Prepend to display in reverse-chronological order
+    history.unshift(newRecord);
+
+    if (history.length > 500) {
+      history.pop();
+    }
+
+    await chrome.storage.local.set({ history });
+  } catch (e) {
+    console.error('Error saving history record:', e);
   }
 }
