@@ -126,6 +126,22 @@ if (!window.selectaOverlay) {
     // Setup drag and resize controllers
     this.setupDragAndResize();
 
+    // Listen to browser window resize to ensure overlay stays fully on screen
+    window.addEventListener('resize', () => {
+      if (this.overlayElement && this.overlayElement.classList.contains('visible')) {
+        const rect = this.overlayElement.getBoundingClientRect();
+        if (rect.right > window.innerWidth) {
+          const newLeft = Math.max(16, window.innerWidth - rect.width - 16);
+          this.overlayElement.style.left = newLeft + 'px';
+          this.overlayElement.style.right = 'auto';
+        }
+        if (rect.bottom > window.innerHeight) {
+          const newTop = Math.max(16, window.innerHeight - rect.height - 16);
+          this.overlayElement.style.top = newTop + 'px';
+        }
+      }
+    });
+
     // Check if the service is already paused on load to show badge
     chrome.storage.local.get({ enabled: true }, (res) => {
       if (!res.enabled) {
@@ -185,10 +201,9 @@ if (!window.selectaOverlay) {
       wordTitle.textContent = term;
     }
 
-    // Set loading indicator
+    // Set loading indicator (no text, loading dots animation only)
     mainContent.innerHTML = `
       <div class="overlay-content loading">
-        Analyzing selection
         <div class="loading-dots">
           <div class="loading-dot"></div>
           <div class="loading-dot"></div>
@@ -306,7 +321,6 @@ if (!window.selectaOverlay) {
       <div class="chat-question">Q: ${this.escapeHtml(question)}</div>
       <div class="chat-answer" id="answer-${turnId}">
         <div class="overlay-content loading">
-          Thinking
           <div class="loading-dots">
             <div class="loading-dot"></div>
             <div class="loading-dot"></div>
@@ -472,6 +486,7 @@ if (!window.selectaOverlay) {
       const rect = this.overlayElement.getBoundingClientRect();
       this.resizeInitialWidth = rect.width;
       this.resizeInitialHeight = rect.height;
+      this.resizeInitialRight = rect.right;
 
       e.preventDefault();
       e.stopPropagation(); // Avoid triggering header mousedown
@@ -482,15 +497,24 @@ if (!window.selectaOverlay) {
         const dw = moveEvent.clientX - this.resizeStartX;
         const dh = moveEvent.clientY - this.resizeStartY;
 
-        const newWidth = Math.max(340, this.resizeInitialWidth + dw);
-        const newHeight = Math.max(180, this.resizeInitialHeight + dh);
+        // Resize from bottom-left: dragging left (negative dw) increases width
+        const newWidth = Math.max(340, this.resizeInitialWidth - dw);
+        
+        // Keep the right edge fixed by updating both width and left
+        const newLeft = this.resizeInitialRight - newWidth;
+
+        // Cap height at natural height wrapping the content
+        const naturalHeight = this.getNaturalHeight();
+        const newHeight = Math.min(Math.max(180, this.resizeInitialHeight + dh), naturalHeight);
 
         this.overlayElement.style.width = newWidth + 'px';
+        this.overlayElement.style.left = newLeft + 'px';
+        this.overlayElement.style.right = 'auto';
         this.overlayElement.style.height = newHeight + 'px';
         this.overlayElement.style.maxHeight = 'none';
 
         const body = this.shadow.getElementById('selecta-body');
-        body.style.maxHeight = 'none';
+        if (body) body.style.maxHeight = 'none';
       };
 
       const onMouseUp = () => {
@@ -503,6 +527,30 @@ if (!window.selectaOverlay) {
       document.addEventListener('mousemove', onMouseMove);
       document.addEventListener('mouseup', onMouseUp);
     });
+  }
+
+  getNaturalHeight() {
+    if (!this.overlayElement) return 0;
+    const body = this.shadow.getElementById('selecta-body');
+    if (!body) return 0;
+
+    const originalHeight = this.overlayElement.style.height;
+    const originalMaxHeight = this.overlayElement.style.maxHeight;
+    const originalBodyMaxHeight = body.style.maxHeight;
+
+    // Temporarily set layout properties to auto to measure natural size wrapping content
+    this.overlayElement.style.height = 'auto';
+    this.overlayElement.style.maxHeight = 'none';
+    body.style.maxHeight = 'none';
+
+    const naturalHeight = this.overlayElement.offsetHeight;
+
+    // Restore original styles
+    this.overlayElement.style.height = originalHeight;
+    this.overlayElement.style.maxHeight = originalMaxHeight;
+    body.style.maxHeight = originalBodyMaxHeight;
+
+    return naturalHeight;
   }
 
   // Escape HTML helper

@@ -3,6 +3,7 @@
 :root {
   /* Light Theme variables from design.md */
   --font-sans: 'Outfit', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
   --bg-app: linear-gradient(135deg, #e5e2db, #d4d0c8);
   --bg-card: rgba(253, 251, 247, 1);
   --bg-modal: rgba(253, 251, 247, 1);
@@ -22,6 +23,7 @@
 
 [data-theme="dark"] {
   /* Dark Theme variables from design.md */
+  --font-mono: 'JetBrains Mono', monospace;
   --bg-app: linear-gradient(145deg, #0f131a 0%, #171b26 100%);
   --bg-card: rgba(30, 35, 45, 0.95);
   --bg-modal: rgba(30, 35, 45, 0.98);
@@ -605,7 +607,7 @@ textarea.text-input {
   font-style: italic;
 }
 .history-explanation .md-code {
-  font-family: monospace;
+  font-family: var(--font-mono);
   background: var(--bg-button);
   padding: 1px 4px;
   border-radius: 4px;

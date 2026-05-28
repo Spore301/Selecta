@@ -1,5 +1,5 @@
 /* overlay.css */
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
 
 :host {
   all: initial;
@@ -17,6 +17,7 @@
 .selecta-overlay-wrapper {
   /* Light Theme */
   --font-sans: 'Outfit', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace, 'Courier New';
   --bg-card: rgba(253, 251, 247, 0.92);
   --bg-modal: rgba(253, 251, 247, 1);
   --bg-button: rgba(0, 0, 0, 0.05);
@@ -25,7 +26,7 @@
   --border-glass: rgba(0, 0, 0, 0.12);
   --hover-bg: rgba(0, 0, 0, 0.08);
   --active-bg: rgba(0, 0, 0, 0.12);
-  --shadow-card: 0 12px 32px rgba(0, 0, 0, 0.12);
+  --shadow-card: 0 8px 24px rgba(0, 0, 0, 0.15);
   --shadow-glow: 0 0 10px rgba(0, 0, 0, 0.05);
   --accent: #3b82f6;
   --radius-pill: 12px;
@@ -35,6 +36,7 @@
 
 .selecta-overlay-wrapper[data-theme="dark"] {
   /* Dark Theme */
+  --font-mono: 'JetBrains Mono', monospace, 'Courier New';
   --bg-card: rgba(30, 35, 45, 0.90);
   --bg-modal: rgba(30, 35, 45, 0.98);
   --bg-button: rgba(255, 255, 255, 0.07);
@@ -43,7 +45,7 @@
   --border-glass: rgba(255, 255, 255, 0.05);
   --hover-bg: rgba(255, 255, 255, 0.10);
   --active-bg: rgba(255, 255, 255, 0.15);
-  --shadow-card: 0 16px 40px rgba(0, 0, 0, 0.25);
+  --shadow-card: 0 16px 40px rgba(0, 0, 0, 0.3);
   --shadow-glow: 0 0 15px rgba(255, 255, 255, 0.02);
   --accent: #60a5fa;
   --active-text: #0f131a;
@@ -194,6 +196,7 @@
   max-height: 220px;
   overflow-y: auto;
   padding-right: 4px;
+  scroll-behavior: smooth;
 }
 
 /* Custom scrollbar for overlay body */
@@ -249,6 +252,7 @@
 .overlay-content.loading {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   color: var(--text-secondary);
   font-size: 0.85rem;
@@ -287,7 +291,7 @@
 }
 
 .md-code {
-  font-family: monospace;
+  font-family: var(--font-mono);
   background: var(--bg-button);
   padding: 2px 5px;
   border-radius: 4px;
@@ -492,12 +496,13 @@
 /* Diagonal stripe resize handle */
 .resize-handle {
   position: absolute;
-  right: 5px;
+  left: 5px;
+  right: auto;
   bottom: 5px;
   width: 10px;
   height: 10px;
-  cursor: se-resize;
-  border-right: 2px solid var(--text-secondary);
+  cursor: sw-resize;
+  border-left: 2px solid var(--text-secondary);
   border-bottom: 2px solid var(--text-secondary);
   opacity: 0.4;
   transition: opacity 0.2s;
