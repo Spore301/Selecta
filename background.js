@@ -106,8 +106,8 @@ chrome.runtime.onConnect.addListener((port) => {
         systemPrompt = `You are a concise AI text summarizer. Summarize the provided text in 2–3 brief bullet points using markdown. Keep it clear, readable, and structured. Do not add conversational filler.`;
         userPrompt = `Text to summarize: ${selectedText}`;
       } else {
-        systemPrompt = `You are a helpful, precise dictionary. Explain the selected term in a clean dictionary-style layout. Provide the part of speech, a concise definition, and optionally a brief usage example or key synonym. Use markdown formatting to make it look structured and readable. Do not add conversational filler.`;
-        userPrompt = `Term: ${term}\nContext: ${context}`;
+        systemPrompt = `You are a helpful, context-aware AI reading companion. Explain the selected text or term clearly to clarify the user's doubts. Use the surrounding context to provide a highly relevant, structured explanation. Use markdown formatting to make it readable and clear. Do not add conversational filler.`;
+        userPrompt = `Selected Text: ${term}\nSurrounding Context: ${context}`;
       }
 
       // Initialize port conversation memory

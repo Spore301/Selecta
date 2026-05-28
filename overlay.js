@@ -43,7 +43,7 @@ if (!window.selectaOverlay) {
       <div class="overlay-container">
         <div class="overlay-header">
           <div class="overlay-title-wrapper">
-            <span class="overlay-subtitle" id="selecta-mode-title">Dictionary</span>
+            <span class="overlay-subtitle" id="selecta-mode-title">Explanation</span>
             <span class="overlay-title" id="selecta-word-title">Term</span>
           </div>
           <div class="overlay-actions">
@@ -181,7 +181,7 @@ if (!window.selectaOverlay) {
       modeTitle.textContent = 'Summarizer';
       wordTitle.textContent = 'Passage Selection';
     } else {
-      modeTitle.textContent = 'Dictionary';
+      modeTitle.textContent = 'Explanation';
       wordTitle.textContent = term;
     }
 
